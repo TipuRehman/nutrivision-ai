@@ -6,39 +6,16 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const SYSTEM_PROMPT = `You are a professional AI nutrition coach. You receive a food image and must analyze it to provide nutritional estimates.
-
-Return ONLY valid JSON with this exact structure:
-{
-  "foodName": "Name of the identified food/meal",
-  "calories": <number>,
-  "protein": <number in grams>,
-  "carbs": <number in grams>,
-  "fats": <number in grams>,
-  "iron": <number in mg>,
-  "fiber": <number in grams>,
-  "portionSize": "Estimated portion size description",
-  "vitamins": ["Vitamin A", "Vitamin C", ...],
-  "healthRating": "healthy" | "moderate" | "unhealthy",
-  "explanation": "A short 1-2 sentence explanation of overall food quality and nutritional value",
-  "advice": "2-3 sentences of friendly, professional health advice about this meal"
-}
-
-If the image is NOT food, return:
-{"error": "Non-food item detected. Please upload a photo of food for nutritional analysis."}
-
-Be realistic with estimates. Base them on visual portion size. Keep advice friendly and actionable. healthRating must be exactly one of: "healthy", "moderate", or "unhealthy".`;
-
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { image, mimeType } = await req.json();
+    const { question, nutritionContext, chatHistory } = await req.json();
 
-    if (!image) {
-      return new Response(JSON.stringify({ error: "No image provided" }), {
+    if (!question || !nutritionContext) {
+      return new Response(JSON.stringify({ error: "Missing question or nutrition context" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -49,6 +26,34 @@ serve(async (req) => {
       throw new Error("LOVABLE_API_KEY is not configured");
     }
 
+    const systemPrompt = `You are a friendly, professional AI nutrition coach. The user has uploaded a food image that was analyzed with the following results:
+
+Food: ${nutritionContext.foodName}
+Calories: ${nutritionContext.calories} kcal
+Protein: ${nutritionContext.protein}g
+Carbs: ${nutritionContext.carbs}g
+Fats: ${nutritionContext.fats}g
+Iron: ${nutritionContext.iron}mg
+Fiber: ${nutritionContext.fiber}g
+Portion Size: ${nutritionContext.portionSize}
+Health Rating: ${nutritionContext.healthRating}
+Vitamins: ${nutritionContext.vitamins?.join(", ") || "N/A"}
+
+Answer the user's follow-up questions about this food based on the analysis above. Be helpful, friendly, and concise. Use simple language. Keep answers to 2-4 sentences unless the user asks for detail.`;
+
+    const messages: any[] = [
+      { role: "system", content: systemPrompt },
+    ];
+
+    // Include chat history for context
+    if (chatHistory && Array.isArray(chatHistory)) {
+      for (const msg of chatHistory) {
+        messages.push({ role: msg.role, content: msg.content });
+      }
+    }
+
+    messages.push({ role: "user", content: question });
+
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -57,21 +62,7 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         model: "google/gemini-2.5-flash",
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          {
-            role: "user",
-            content: [
-              { type: "text", text: "Analyze this food image and provide nutritional estimates." },
-              {
-                type: "image_url",
-                image_url: {
-                  url: `data:${mimeType || "image/jpeg"};base64,${image}`,
-                },
-              },
-            ],
-          },
-        ],
+        messages,
       }),
     });
 
@@ -90,7 +81,7 @@ serve(async (req) => {
       }
       const text = await response.text();
       console.error("AI gateway error:", response.status, text);
-      throw new Error("AI analysis failed");
+      throw new Error("Failed to get AI response");
     }
 
     const aiResponse = await response.json();
@@ -100,18 +91,11 @@ serve(async (req) => {
       throw new Error("No response from AI");
     }
 
-    let jsonStr = content.trim();
-    if (jsonStr.startsWith("```")) {
-      jsonStr = jsonStr.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
-    }
-
-    const parsed = JSON.parse(jsonStr);
-
-    return new Response(JSON.stringify(parsed), {
+    return new Response(JSON.stringify({ answer: content }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
-    console.error("analyze-food error:", e);
+    console.error("food-chat error:", e);
     const msg = e instanceof Error ? e.message : "Unknown error";
     return new Response(JSON.stringify({ error: msg }), {
       status: 500,
