@@ -2,3 +2,6 @@ project_id = "hhkfwqjdxprorymwenly"
 
 [functions.analyze-food]
 verify_jwt = false
+
+[functions.food-chat]
+verify_jwt = false

@@ -7,6 +7,7 @@ import UploadZone from "@/components/UploadZone";
 import AnalysisLoader from "@/components/AnalysisLoader";
 import NutritionGrid from "@/components/NutritionGrid";
 import CoachAdvice from "@/components/CoachAdvice";
+import ChatSection from "@/components/ChatSection";
 import ErrorMessage from "@/components/ErrorMessage";
 import { Button } from "@/components/ui/button";
 import { Sparkles } from "lucide-react";
@@ -40,7 +41,6 @@ const Index = () => {
     setResult(null);
 
     try {
-      // Convert file to base64
       const reader = new FileReader();
       const base64 = await new Promise<string>((resolve, reject) => {
         reader.onload = () => resolve((reader.result as string).split(",")[1]);
@@ -102,6 +102,7 @@ const Index = () => {
             <div className="space-y-5">
               <NutritionGrid data={result} />
               <CoachAdvice advice={result.advice} foodName={result.foodName} />
+              <ChatSection nutritionData={result} />
               <Button variant="outline" onClick={handleClear} className="w-full">
                 Analyze Another Meal
               </Button>
